@@ -9,3 +9,7 @@ Simple bash script that will help you add your "cloud.openshift.com" pull-secret
 5. Copy the token in your clipboard
 6. ./insight-my-aro.sh ${your_token}
 7. Sit back and relax
+
+If you want to roll-back because something is f*ed up, you'll find a copy of both the original/untouched pull-secret as well as the updated one in your /tmp folder, the filenames are respectively:
+1. /tmp/pull-secret-ORIG.json
+2. /tmp/pull-secret-NEW.json
