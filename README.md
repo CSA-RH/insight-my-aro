@@ -11,5 +11,7 @@ Simple bash script that will help you add your "cloud.openshift.com" pull-secret
 7. Sit back and relax
 
 If you want to roll-back because something is f*ed up, you'll find a copy of both the original/untouched pull-secret as well as the updated one in your /tmp folder, the filenames are respectively:
-1. /tmp/pull-secret-ORIG.json
-2. /tmp/pull-secret-NEW.json
+1. /tmp/pull-secret-ORIG_${TIMESTAMP}.json
+2. /tmp/pull-secret-NEW_${TIMESTAMP}.json
+
+The ${TIMESTAMP} variable is valued after the "date +%Y.%m.%d_%H%M%S" command issued at the moment of the script's execution.

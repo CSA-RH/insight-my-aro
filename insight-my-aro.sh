@@ -37,7 +37,7 @@
 # As described in https://access.redhat.com/solutions/4844461, a token is needed if you didn't already downloaded the pull-secret in first place while executing this script. 
 
 OFFLINE_ACCESS_TOKEN=$1
-
+TIMESTAMP=$(date +%Y.%m.%d_%H%M%S)
 
 ## TOKEN CHECK
 if [[ -z $OFFLINE_ACCESS_TOKEN ]];
@@ -65,15 +65,15 @@ if [ -z $ORIG_SECRET ]; then echo "Please login into your cluster and relaunch t
 	exit 2;
 fi
 
-echo $ORIG_SECRET|tee /tmp/pull-secret-ORIG.json /tmp/pull-secret-NEW.json
+echo $ORIG_SECRET|tee /tmp/pull-secret-ORIG_${TIMESTAMP}.json /tmp/pull-secret-NEW_${TIMESTAMP}.json
 
 ## REPLACE THE STRING 
 
-sed -i -e 's/{"auths":{"arosvc.azurecr.io"/{"auths":{'''$REPLACESTR'''"arosvc.azurecr.io"/g' /tmp/pull-secret-NEW.json
+sed -i -e 's/{"auths":{"arosvc.azurecr.io"/{"auths":{'''$REPLACESTR'''"arosvc.azurecr.io"/g' /tmp/pull-secret-NEW_${TIMESTAMP}.json
 
 ## UPDATE PULL-SECRET ON THE CLUSTER
 
-oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/pull-secret-NEW.json
+oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/pull-secret-NEW_${TIMESTAMP}.json
 
 ## DELETE THE INSIGHTS OPERATOR TO FORCE THE NEW CONFIGURATION
 
