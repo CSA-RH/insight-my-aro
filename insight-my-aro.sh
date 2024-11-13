@@ -40,13 +40,29 @@ set -x
 OFFLINE_ACCESS_TOKEN=$1
 TIMESTAMP=$(date +%Y.%m.%d_%H%M%S)
 
+
+# ASK FOR TELEMETRY AND OCM REGISTERING CONSENT
+read -p "Do you want to register your ARO cluster in OCM and send Red Hat telemetry data as well? (yes|no): " answer_ocm
+while true;
+	do
+case ${answer_ocm} in
+	yes) break
+	;;
+	no) break
+	;;
+	*) echo "Invalid data, please enter yes or no. Launch the script again."
+	exit 2
+	;;
+esac
+done
+
 ## TOKEN CHECK
 if [[ -z $OFFLINE_ACCESS_TOKEN ]];
 then echo "Please go to https://console.redhat.com/openshift/token/show and copy the offline token so you can re-launch this script properly."
 	exit 2
 fi
 
-## PULL SECRET DOWNLOAD
+## ACCESS TO THE SSO AND THEN DOWNLOAD THE PULL SECRET
 export BEARER_TOKEN=$(curl \
 --silent \
 --data-urlencode "grant_type=refresh_token" \
@@ -57,33 +73,42 @@ jq -r .access_token)
 
 export PULL_SECRET=$(curl -X POST https://api.openshift.com/api/accounts_mgmt/v1/access_token --header "Content-Type:application/json" --header "Authorization: Bearer $BEARER_TOKEN")
 
-## BACKING UP THE SECRET ORIGINALLY STORED IN OPENSHIFT-CONFIG NAMESPACE
+## VARIABLES FOR THE SECRET FILENAMES
 ORIG_SECRET=/tmp/pull-secret-ORIG_${TIMESTAMP}.json
 NEW_SECRET=/tmp/pull-secret-NEW_${TIMESTAMP}.json
+
+## BACKING UP THE SECRET ORIGINALLY STORED IN OPENSHIFT-CONFIG NAMESPACE
 oc get secrets pull-secret -n openshift-config -o template='{{index .data ".dockerconfigjson"}}' | base64 -d |tee ${ORIG_SECRET}
 
 if [ ! -s $ORIG_SECRET ]; then echo "Backup secret file is empty, please login into your cluster and/or check if the secret exists then retry executing the script."
 	exit 2;
 fi
 
-## CHECK IF THE SECRET WAS ALREADY MODIFIED
-export FILECHECK=$(grep -oP '(?<=\{|,)"cloud.openshift.com"[^\}]+.,' ${ORIG_SECRET};echo $?)
-export VALUE=$(echo $PULL_SECRET| jq -r '.auths."cloud.openshift.com"' )
+## VARIABLES FOR THE JSON OBJECTS OF EACH ENDPOINT
+export VALUE_CLOUD=$(echo $PULL_SECRET| jq -r '.auths."cloud.openshift.com"' )
+export VALUE_REGISTRY_1=$(echo $PULL_SECRET| jq -r '.auths."registry.connect.redhat.com"' )
+export VALUE_REGISTRY_2=$(echo $PULL_SECRET| jq -r '.auths."registry.redhat.io"' )
+export VALUE_QUAY=$(echo $PULL_SECRET| jq -r '.auths."quay.io"' )
 
-## REPLACE THE STRING ACCORDINGLY 
-if [[ "${FILECHECK}" -gt 0 ]]; then
-		echo "Now adding the cloud.openshift.com values to the secret pulled from the cluster to build the new file"
-		jq -c '.auths."cloud.openshift.com" |= '''"${VALUE}"''' + .' $ORIG_SECRET| tee ${NEW_SECRET}
+
+## REPLACE THE STRING ACCORDINGLY TO THE USER'S PREFERENCE
+if [[ "$answer_ocm" == "yes" ]];then
+		echo "Now adding your  values to the secret pulled from the cluster to build the new file"
+		jq -c '.auths."registry.connect.redhat.com" = '''"${VALUE_REGISTRY_1}"''' | .auths."registry.redhat.io" = '''"${VALUE_REGISTRY_2}"''' | .auths."quay.io" = '''"${VALUE_QUAY}"''' | .auths."cloud.openshift.com" |= '''"${VALUE_CLOUD}"''' ' $ORIG_SECRET| tee ${NEW_SECRET}
 	else 
-			
+		# IN THIS CASE THE OCM AND TELEMETRY CONSENT SECRET WON'T BE CONFIGURED	
 		echo "Now replacing the cloud.openshift.com values in the secret pulled from the cluster to build the new file"
-		jq -c '.auths."cloud.openshift.com" = '''"${VALUE}"''' ' $ORIG_SECRET| tee ${NEW_SECRET}
+		jq -c '.auths."registry.connect.redhat.com" = '''"${VALUE_REGISTRY_1}"''' | .auths."registry.redhat.io" = '''"${VALUE_REGISTRY_2}"''' | .auths."quay.io" = '''"${VALUE_QUAY}"''' ' $ORIG_SECRET| tee ${NEW_SECRET}
 fi
 
+
+echo "Are you okay with the json file that will be downloaded?"
+jq '.' $NEW_SECRET
+exit
 ## UPDATE PULL-SECRET ON THE CLUSTER
 
 oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/pull-secret-NEW_${TIMESTAMP}.json
 
-## DELETE THE INSIGHTS OPERATOR TO FORCE THE NEW CONFIGURATION
+## DELETE THE INSIGHTS OPERATOR TO FORCE THE ROLLOUT OF THE PODS TO READ THE NEW CONFIGURATION
 
 oc -n openshift-insights delete $(oc -n openshift-insights get pods -l app=insights-operator -o name)
