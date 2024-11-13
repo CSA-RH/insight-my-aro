@@ -45,8 +45,8 @@ TIMESTAMP=$(date +%Y.%m.%d_%H%M%S)
 while true;	do
 	read -p "Do you want to register your ARO cluster in OCM and send Red Hat telemetry data as well? (yes|no): " answer_ocm
 	case ${answer_ocm} in
-		yes) break;;
-		no) break;;
+		yes) clear;break;;
+		no) clear;break;;
 		*) echo "Invalid data, please enter yes or no.";sleep 0.5;clear;;
 	esac
 done
@@ -58,7 +58,7 @@ then echo "Please go to https://console.redhat.com/openshift/token/show and copy
 fi
 
 ## ACCESS TO THE SSO AND THEN DOWNLOAD THE PULL SECRET
-export BEARER_TOKEN=$(curl \
+export BEARER_TOKEN=$(curl -s \
 --silent \
 --data-urlencode "grant_type=refresh_token" \
 --data-urlencode "client_id=cloud-services" \
@@ -66,14 +66,14 @@ export BEARER_TOKEN=$(curl \
 https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token | \
 jq -r .access_token)
 
-export PULL_SECRET=$(curl -X POST https://api.openshift.com/api/accounts_mgmt/v1/access_token --header "Content-Type:application/json" --header "Authorization: Bearer $BEARER_TOKEN")
+export PULL_SECRET=$(curl -s -X POST https://api.openshift.com/api/accounts_mgmt/v1/access_token --header "Content-Type:application/json" --header "Authorization: Bearer $BEARER_TOKEN")
 
 ## VARIABLES FOR THE SECRET FILENAMES
 ORIG_SECRET=/tmp/pull-secret-ORIG_${TIMESTAMP}.json
 NEW_SECRET=/tmp/pull-secret-NEW_${TIMESTAMP}.json
 
 ## BACKING UP THE SECRET ORIGINALLY STORED IN OPENSHIFT-CONFIG NAMESPACE
-oc get secrets pull-secret -n openshift-config -o template='{{index .data ".dockerconfigjson"}}' | base64 -d |tee ${ORIG_SECRET}
+oc get secrets pull-secret -n openshift-config -o template='{{index .data ".dockerconfigjson"}}' | base64 -d > ${ORIG_SECRET}
 
 if [ ! -s $ORIG_SECRET ]; then echo "Backup secret file is empty, please login into your cluster and/or check if the secret exists then retry executing the script."
 	exit 2;
@@ -88,24 +88,26 @@ export VALUE_QUAY=$(echo $PULL_SECRET| jq -r '.auths."quay.io"' )
 
 ## REPLACE THE STRING ACCORDINGLY TO THE USER'S PREFERENCE
 if [[ "$answer_ocm" == "yes" ]];then
-		echo "Now adding your  values to the secret pulled from the cluster to build the new file"
-		jq -c '.auths."registry.connect.redhat.com" = '''"${VALUE_REGISTRY_1}"''' | .auths."registry.redhat.io" = '''"${VALUE_REGISTRY_2}"''' | .auths."quay.io" = '''"${VALUE_QUAY}"''' | .auths."cloud.openshift.com" |= '''"${VALUE_CLOUD}"''' ' $ORIG_SECRET| tee ${NEW_SECRET}
+		echo "Now adding your  values to the secret pulled from the cluster to build the new file:"
+		jq -c '.auths."registry.connect.redhat.com" = '''"${VALUE_REGISTRY_1}"''' | .auths."registry.redhat.io" = '''"${VALUE_REGISTRY_2}"''' | .auths."quay.io" = '''"${VALUE_QUAY}"''' | .auths."cloud.openshift.com" |= '''"${VALUE_CLOUD}"''' ' $ORIG_SECRET > ${NEW_SECRET}
 	else 
 		# IN THIS CASE THE OCM AND TELEMETRY CONSENT SECRET WON'T BE CONFIGURED	
-		echo "Now replacing the cloud.openshift.com values in the secret pulled from the cluster to build the new file"
-		jq -c '.auths."registry.connect.redhat.com" = '''"${VALUE_REGISTRY_1}"''' | .auths."registry.redhat.io" = '''"${VALUE_REGISTRY_2}"''' | .auths."quay.io" = '''"${VALUE_QUAY}"''' ' $ORIG_SECRET| tee ${NEW_SECRET}
+		echo "Now replacing the cloud.openshift.com values in the secret pulled from the cluster to build the new file:"
+		jq -c '.auths."registry.connect.redhat.com" = '''"${VALUE_REGISTRY_1}"''' | .auths."registry.redhat.io" = '''"${VALUE_REGISTRY_2}"''' | .auths."quay.io" = '''"${VALUE_QUAY}"''' ' $ORIG_SECRET > ${NEW_SECRET}
 fi
 
+sleep 1
 
-
-jq '.' $NEW_SECRET
+jq '.' $NEW_SECRET 
 
 ## FINAL CHECK AND DATA VALIDATION BEFORE EVERYTHING 
 while true;do
-	read -p "Are you okay with the json file that will be uploaded? :" final_answer
+	read -p "Are you okay with the json file that will be uploaded?:  " final_answer
 	case $final_answer in
 		yes) break;;
-		no) echo "Exiting by user's choice. If you want to manually edit and upload the generated secret do as follows:"
+		no) echo
+			echo "Exiting by user's choice. If you want to manually edit and upload the generated secret do as follows:"
+			echo
 			echo 'export NEW_SECRET="'''${NEW_SECRET}'''"';
 			echo 'oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/pull-secret-NEW_${TIMESTAMP}.json'
 			echo 'oc -n openshift-insights delete $(oc -n openshift-insights get pods -l app=insights-operator -o name)'
@@ -115,7 +117,7 @@ while true;do
 	done
 
 ## IN CASE OF POSITIVE FEEDBACK AFTER THE FINAL CHECK
-if [[ "${final_answer}" == "yes"]];then
+if [[ "${final_answer}" == "yes" ]]; then
 
 ## UPDATE PULL-SECRET ON THE CLUSTER
 
