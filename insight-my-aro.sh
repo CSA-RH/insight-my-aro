@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -x
 ######################################################################################################################
 ##  +-----------------------------------+-----------------------------------+
 ##  |                                                                       |
@@ -66,17 +67,17 @@ if [ ! -s $ORIG_SECRET ]; then echo "Backup secret file is empty, please login i
 fi
 
 ## CHECK IF THE SECRET WAS ALREADY MODIFIED
-export FILECHECK=$(grep -oP '(?<=\{)"cloud.openshift.com"[^\}]+.,' ${ORIG_SECRET};echo $?)
+export FILECHECK=$(grep -oP '(?<=\{|,)"cloud.openshift.com"[^\}]+.,' ${ORIG_SECRET};echo $?)
 export VALUE=$(echo $PULL_SECRET| jq -r '.auths."cloud.openshift.com"' )
 
 ## REPLACE THE STRING ACCORDINGLY 
-if [[ ${FILECHECK} != "0" ]]; then
+if [[ "${FILECHECK}" -gt 0 ]]; then
 		echo "Now adding the cloud.openshift.com values to the secret pulled from the cluster to build the new file"
 		jq -c '.auths."cloud.openshift.com" |= '''"${VALUE}"''' + .' $ORIG_SECRET| tee ${NEW_SECRET}
 	else 
 			
 		echo "Now replacing the cloud.openshift.com values in the secret pulled from the cluster to build the new file"
-		jq '.auths."cloud.openshift.com" = '''"${VALUE}"''' ' $ORIG_SECRET| tee ${NEW_SECRET}
+		jq -c '.auths."cloud.openshift.com" = '''"${VALUE}"''' ' $ORIG_SECRET| tee ${NEW_SECRET}
 fi
 
 ## UPDATE PULL-SECRET ON THE CLUSTER
