@@ -56,20 +56,28 @@ jq -r .access_token)
 
 export PULL_SECRET=$(curl -X POST https://api.openshift.com/api/accounts_mgmt/v1/access_token --header "Content-Type:application/json" --header "Authorization: Bearer $BEARER_TOKEN")
 
-## SETTING STRING REPLACEMENT VARIABLE TO ISOLATE CLOUD.OPENSHIFT.COM CLAIM ONLY FOR LATER USE
-export REPLACESTR=$(echo $PULL_SECRET| grep -oP '(?<=\{)"cloud.openshift.com"[^\}]+.,' )
-
 ## BACKING UP THE SECRET ORIGINALLY STORED IN OPENSHIFT-CONFIG NAMESPACE
-ORIG_SECRET=$(oc get secrets pull-secret -n openshift-config -o template='{{index .data ".dockerconfigjson"}}' | base64 -d)
-if [ -z $ORIG_SECRET ]; then echo "Please login into your cluster and relaunch the script so it can be executed properly"
+ORIG_SECRET=/tmp/pull-secret-ORIG_${TIMESTAMP}.json
+NEW_SECRET=/tmp/pull-secret-NEW_${TIMESTAMP}.json
+oc get secrets pull-secret -n openshift-config -o template='{{index .data ".dockerconfigjson"}}' | base64 -d |tee ${ORIG_SECRET}
+
+if [ ! -s $ORIG_SECRET ]; then echo "Backup secret file is empty, please login into your cluster and/or check if the secret exists then retry executing the script."
 	exit 2;
 fi
 
-echo $ORIG_SECRET|tee /tmp/pull-secret-ORIG_${TIMESTAMP}.json /tmp/pull-secret-NEW_${TIMESTAMP}.json
+## CHECK IF THE SECRET WAS ALREADY MODIFIED
+export FILECHECK=$(grep -oP '(?<=\{)"cloud.openshift.com"[^\}]+.,' ${ORIG_SECRET};echo $?)
+export VALUE=$(echo $PULL_SECRET| jq -r '.auths."cloud.openshift.com"' )
 
-## REPLACE THE STRING 
-
-sed -i -e 's/{"auths":{"arosvc.azurecr.io"/{"auths":{'''$REPLACESTR'''"arosvc.azurecr.io"/g' /tmp/pull-secret-NEW_${TIMESTAMP}.json
+## REPLACE THE STRING ACCORDINGLY 
+if [[ ${FILECHECK} != "0" ]]; then
+		echo "Now adding the cloud.openshift.com values to the secret pulled from the cluster to build the new file"
+		jq -c '.auths."cloud.openshift.com" |= '''"${VALUE}"''' + .' $ORIG_SECRET| tee ${NEW_SECRET}
+	else 
+			
+		echo "Now replacing the cloud.openshift.com values in the secret pulled from the cluster to build the new file"
+		jq '.auths."cloud.openshift.com" = '''"${VALUE}"''' ' $ORIG_SECRET| tee ${NEW_SECRET}
+fi
 
 ## UPDATE PULL-SECRET ON THE CLUSTER
 
@@ -78,7 +86,3 @@ oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson
 ## DELETE THE INSIGHTS OPERATOR TO FORCE THE NEW CONFIGURATION
 
 oc -n openshift-insights delete $(oc -n openshift-insights get pods -l app=insights-operator -o name)
-
-
-
-
