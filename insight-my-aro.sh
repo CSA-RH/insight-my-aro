@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -x
 ######################################################################################################################
 ##  +-----------------------------------+-----------------------------------+
 ##  |                                                                       |
@@ -42,18 +41,14 @@ TIMESTAMP=$(date +%Y.%m.%d_%H%M%S)
 
 
 # ASK FOR TELEMETRY AND OCM REGISTERING CONSENT
-read -p "Do you want to register your ARO cluster in OCM and send Red Hat telemetry data as well? (yes|no): " answer_ocm
-while true;
-	do
-case ${answer_ocm} in
-	yes) break
-	;;
-	no) break
-	;;
-	*) echo "Invalid data, please enter yes or no. Launch the script again."
-	exit 2
-	;;
-esac
+
+while true;	do
+	read -p "Do you want to register your ARO cluster in OCM and send Red Hat telemetry data as well? (yes|no): " answer_ocm
+	case ${answer_ocm} in
+		yes) break;;
+		no) break;;
+		*) echo "Invalid data, please enter yes or no.";sleep 0.5;clear;;
+	esac
 done
 
 ## TOKEN CHECK
@@ -102,9 +97,26 @@ if [[ "$answer_ocm" == "yes" ]];then
 fi
 
 
-echo "Are you okay with the json file that will be downloaded?"
+
 jq '.' $NEW_SECRET
-exit
+
+## FINAL CHECK AND DATA VALIDATION BEFORE EVERYTHING 
+while true;do
+	read -p "Are you okay with the json file that will be uploaded? :" final_answer
+	case $final_answer in
+		yes) break;;
+		no) echo "Exiting by user's choice. If you want to manually edit and upload the generated secret do as follows:"
+			echo 'export NEW_SECRET="'''${NEW_SECRET}'''"';
+			echo 'oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/pull-secret-NEW_${TIMESTAMP}.json'
+			echo 'oc -n openshift-insights delete $(oc -n openshift-insights get pods -l app=insights-operator -o name)'
+			exit 2;;
+		*)sleep 0.5;clear;jq '.' $NEW_SECRET;;
+	esac
+	done
+
+## IN CASE OF POSITIVE FEEDBACK AFTER THE FINAL CHECK
+if [[ "${final_answer}" == "yes"]];then
+
 ## UPDATE PULL-SECRET ON THE CLUSTER
 
 oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/pull-secret-NEW_${TIMESTAMP}.json
@@ -112,3 +124,4 @@ oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson
 ## DELETE THE INSIGHTS OPERATOR TO FORCE THE ROLLOUT OF THE PODS TO READ THE NEW CONFIGURATION
 
 oc -n openshift-insights delete $(oc -n openshift-insights get pods -l app=insights-operator -o name)
+fi
